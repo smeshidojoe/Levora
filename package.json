@@ -1,0 +1,17 @@
+{
+  "name": "levora",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Per-site dynamic range compression for browser audio",
+  "scripts": {
+    "build": "node build.js",
+    "build:zip": "node build.js --zip",
+    "check": "tsc --noEmit",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@types/firefox-webext-browser": "^120.0.4",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "extName": {
+    "message": "Levora",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Выравнивает громкие и тихие места на странице: диалоги слышно, взрывы не рвут уши. Настройка запоминается для каждого сайта.",
+    "description": "Extension description shown in the store and the extensions page"
+  },
+  "enable": {
+    "message": "Включить",
+    "description": "Button that turns compression on for this site"
+  },
+  "disable": {
+    "message": "Выключить",
+    "description": "Button that turns compression off for this site"
+  },
+  "knob_holdAboveDb": {
+    "message": "Держать выше",
+    "description": "Knob: dB above the programme loudness where compression and levelling start"
+  },
+  "knob_reachBelowDb": {
+    "message": "Поднимать ниже",
+    "description": "Knob: dB below the programme loudness that levelling reaches down to"
+  },
+  "knob_ratio": {
+    "message": "Ratio",
+    "description": "Knob: compression ratio"
+  },
+  "programme": {
+    "message": "Программа",
+    "description": "Label before the measured programme loudness in dBFS"
+  },
+  "reduction": {
+    "message": "Подавление",
+    "description": "Label for the gain-reduction meter"
+  },
+  "preset_light": {
+    "message": "Лёгкий",
+    "description": "Preset name"
+  },
+  "preset_speech": {
+    "message": "Речь",
+    "description": "Preset name"
+  },
+  "preset_movie": {
+    "message": "Фильм",
+    "description": "Preset name"
+  },
+  "preset_night": {
+    "message": "Ночь",
+    "description": "Preset name"
+  },
+  "unavailable": {
+    "message": "Звук на этой странице защищён и не поддаётся обработке",
+    "description": "Shown when every audio source is DRM-protected or CORS-tainted"
+  },
+  "noAudio": {
+    "message": "Звук на этой странице не найден",
+    "description": "Shown when the page has no audio source at all"
+  }
+}

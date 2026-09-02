@@ -1,0 +1,62 @@
+{
+  "extName": {
+    "message": "Levora",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Levels out loud and quiet passages on a page, so dialogue stays audible without explosions blowing your ears off. Remembered per site.",
+    "description": "Extension description shown in the store and the extensions page"
+  },
+  "enable": {
+    "message": "Enable",
+    "description": "Button that turns compression on for this site"
+  },
+  "disable": {
+    "message": "Disable",
+    "description": "Button that turns compression off for this site"
+  },
+  "knob_holdAboveDb": {
+    "message": "Hold above",
+    "description": "Knob: dB above the programme loudness where compression and levelling start"
+  },
+  "knob_reachBelowDb": {
+    "message": "Lift below",
+    "description": "Knob: dB below the programme loudness that levelling reaches down to"
+  },
+  "knob_ratio": {
+    "message": "Ratio",
+    "description": "Knob: compression ratio"
+  },
+  "programme": {
+    "message": "Programme",
+    "description": "Label before the measured programme loudness in dBFS"
+  },
+  "reduction": {
+    "message": "Reduction",
+    "description": "Label for the gain-reduction meter"
+  },
+  "preset_light": {
+    "message": "Light",
+    "description": "Preset name"
+  },
+  "preset_speech": {
+    "message": "Speech",
+    "description": "Preset name"
+  },
+  "preset_movie": {
+    "message": "Movie",
+    "description": "Preset name"
+  },
+  "preset_night": {
+    "message": "Night",
+    "description": "Preset name"
+  },
+  "unavailable": {
+    "message": "This page's audio is protected and cannot be processed",
+    "description": "Shown when every audio source is DRM-protected or CORS-tainted"
+  },
+  "noAudio": {
+    "message": "No audio detected on this page",
+    "description": "Shown when the page has no audio source at all"
+  }
+}

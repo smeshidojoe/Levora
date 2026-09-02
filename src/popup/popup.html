@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="card">
+      <header class="header">
+        <img class="mark" src="../icons/icon-32.png" alt="" width="20" height="20" />
+        <span class="brand">Levora</span>
+        <span class="origin" id="origin"></span>
+      </header>
+
+      <section class="control" id="control">
+        <button
+          type="button"
+          class="power"
+          id="power"
+          aria-pressed="false"
+          data-i18n="enable"
+        >
+          Enable
+        </button>
+
+        <div class="knobs" id="knobs"></div>
+
+        <div class="presets" id="presets"></div>
+
+        <div class="meter-row">
+          <span class="meter-label" data-i18n="reduction">Reduction</span>
+          <span class="meter"><i id="meter"></i></span>
+          <span class="meter-value" id="reduction">0.0 dB</span>
+        </div>
+
+        <p class="programme" id="programme"></p>
+      </section>
+
+      <p class="notice" id="notice" hidden></p>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
