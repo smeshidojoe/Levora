@@ -37,16 +37,7 @@
   const { DEFAULTS, normalise, resolve } = globalThis.LevoraControls;
 
   const TICK_MS = 200; // routing sweep and meter only; the DSP is not on a timer
-  const MIX_RAMP = 0.05; // seconds, click-free bypass crossfade
   const WORKLET_URL = api.runtime.getURL("worklet/levora-processor.js");
-
-  const LIMITER = {
-    threshold: -1.5,
-    knee: 0,
-    ratio: 20,
-    attack: 0.003,
-    release: 0.25,
-  };
 
   let settings = { ...DEFAULTS };
   let params = resolve(settings);
@@ -112,18 +103,7 @@
     }
   }
 
-  function setParam(audioParam, value) {
-    try {
-      audioParam.setTargetAtTime(value, context.currentTime, MIX_RAMP);
-    } catch {
-      audioParam.value = value;
-    }
-  }
-
-  function buildGraph(ctx, source) {
-    const dry = ctx.createGain();
-    const wet = ctx.createGain();
-
+  function buildGraph(ctx, source, element) {
     const node = new AudioWorkletNode(ctx, "levora", {
       numberOfInputs: 1,
       numberOfOutputs: 1,
@@ -136,28 +116,20 @@
       channelCountMode: "explicit",
     });
 
-    // The limiter stays a native node. Peak detection is the wrong instrument
-    // for judging loudness — which is why the compressor moved into the worklet
-    // — but it is exactly the right one for catching peaks, which is all this
-    // does.
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = LIMITER.threshold;
-    limiter.knee.value = LIMITER.knee;
-    limiter.ratio.value = LIMITER.ratio;
-    limiter.attack.value = LIMITER.attack;
-    limiter.release.value = LIMITER.release;
-
-    // A real bypass path rather than a transparent processor: with the wet
-    // chain silenced, nothing downstream can colour the signal when we are off.
-    source.connect(dry).connect(ctx.destination);
-    source.connect(node).connect(limiter).connect(wet).connect(ctx.destination);
+    // Exactly one path to the destination, and no native limiter.
+    //
+    // The parallel dry path this replaces was a bug, not a safety net: the wet
+    // side is delayed by the lookahead, so crossfading between them put the
+    // same audio out twice about 10 ms apart — a slapback, heard as the sound
+    // doubling and swelling. Bypass is a flag inside the worklet now, where
+    // there is only ever one signal to switch.
+    source.connect(node).connect(ctx.destination);
 
     const graph = {
       source,
-      dry,
-      wet,
+      element,
+      connected: true,
       node,
-      limiter,
       reduction: 0,
       gainDb: 0,
       programmeDb: null,
@@ -174,11 +146,6 @@
 
   function applyParams(graph) {
     graph.node.port.postMessage({ type: "params", params });
-  }
-
-  function applyMix(graph) {
-    setParam(graph.wet.gain, settings.on ? 1 : 0);
-    setParam(graph.dry.gain, settings.on ? 0 : 1);
   }
 
   function attach(element) {
@@ -203,11 +170,10 @@
     if (!workletReady) return null;
 
     try {
-      const graph = buildGraph(ctx, ctx.createMediaElementSource(element));
+      const graph = buildGraph(ctx, ctx.createMediaElementSource(element), element);
       graphs.set(element, graph);
       liveGraphs.add(graph);
       applyParams(graph);
-      applyMix(graph);
       startTimer();
       return graph;
     } catch {
@@ -225,8 +191,35 @@
     }
   }
 
+  /**
+   * Disconnect graphs whose element has left the document, and reconnect them if
+   * it comes back.
+   *
+   * A worklet node wired to the destination is pulled forever, so a player that
+   * replaces its media element leaves ours processing silence for the life of
+   * the page. Only the connection is dropped: createMediaElementSource cannot be
+   * called twice, so the source node has to be kept for the element's return.
+   *
+   * Detached media keeps playing, so a graph is only dropped once it is both
+   * detached and stopped.
+   */
+  function prune() {
+    for (const graph of liveGraphs) {
+      const gone = !graph.element.isConnected && !isPlaying(graph.element);
+      if (gone === !graph.connected) continue;
+      graph.connected = !gone;
+      try {
+        if (gone) graph.node.disconnect();
+        else graph.node.connect(context.destination);
+      } catch {
+        // The context went away with the page.
+      }
+    }
+  }
+
   function tick() {
     sweep();
+    prune();
 
     const watched = meterUntil > Date.now();
     if (!listeners.size && !watched) {
@@ -277,10 +270,7 @@
     params = resolve(settings);
     const changed = JSON.stringify(previous) !== JSON.stringify(params);
 
-    for (const graph of liveGraphs) {
-      if (changed) applyParams(graph);
-      applyMix(graph);
-    }
+    if (changed) for (const graph of liveGraphs) applyParams(graph);
     publishToPageWorld();
     if (settings.on) {
       ensureContext();
@@ -295,17 +285,18 @@
    * Hand the computed parameters and the processor's URL to the page world.
    * Only data crosses: the control surface lives in one file, and the page world
    * cannot reach runtime.getURL to find the worklet on its own.
+   *
+   * The parameters go across whether we are on or off. They carry `bypass`, so
+   * "off" is a value the page world needs, not an absence of one — publishing
+   * nothing meant a page-world graph kept compressing after the user switched
+   * the extension off, because it was never told.
    */
   function publishToPageWorld() {
     const root = document.documentElement;
     if (!root) return;
     root.setAttribute(
       "data-levora",
-      JSON.stringify(
-        settings.on
-          ? { on: true, params, limiter: LIMITER, worklet: WORKLET_URL }
-          : { on: false, worklet: WORKLET_URL },
-      ),
+      JSON.stringify({ params, worklet: WORKLET_URL }),
     );
   }
 

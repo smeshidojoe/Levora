@@ -16,8 +16,26 @@ import "../lib/controls.js";
 
 const api = globalThis.browser ?? globalThis.chrome;
 const controls = globalThis.LevoraControls;
-const { RANGES, DEFAULTS, PRESETS, keys, normalise, positionOf, valueAt, format } =
-  controls;
+const {
+  RANGES,
+  DEFAULTS,
+  PRESETS,
+  MODES,
+  BASIC_KEYS,
+  ADVANCED_KEYS,
+  OUTPUT_KEY,
+  normalise,
+  positionOf,
+  valueAt,
+  format,
+} = controls;
+
+// Basic gets the two sliders the job actually needs: how much, and how loud.
+// Advanced gets the engine's own three plus the same output.
+const LAYOUT = {
+  basic: [...BASIC_KEYS, OUTPUT_KEY],
+  advanced: [...ADVANCED_KEYS, OUTPUT_KEY],
+};
 
 const LEASE_MS = 1000; // the content side expires the meter lease after 3 s
 const SWEEP = 270; // degrees of knob travel
@@ -29,7 +47,11 @@ const el = {
   origin: document.getElementById("origin"),
   control: document.getElementById("control"),
   power: document.getElementById("power"),
+  modes: document.getElementById("modes"),
+  sliders: document.getElementById("sliders"),
   knobs: document.getElementById("knobs"),
+  advanced: document.getElementById("advanced"),
+  responses: document.getElementById("responses"),
   presets: document.getElementById("presets"),
   meter: document.getElementById("meter"),
   reduction: document.getElementById("reduction"),
@@ -43,7 +65,15 @@ let tabId = null;
 let origin = null;
 let settings = { ...DEFAULTS };
 let frames = {};
+// While a control is being dragged, the background is still broadcasting the
+// settings it has already stored — which lag the drag by a round trip. Letting
+// those land would snap the control back under the pointer, which reads as the
+// slider not working at all.
+let lastEdit = 0;
+const HOLD_MS = 500;
+const holding = () => Date.now() - lastEdit < HOLD_MS;
 const knobs = new Map();
+const sliders = new Map();
 
 // --- knob ------------------------------------------------------------------
 
@@ -163,12 +193,97 @@ function createKnob(key, onChange) {
       pointer.setAttribute("y2", outer.y.toFixed(2));
       name.textContent = message(`knob_${key}`, key);
       readout.textContent = format(key, current);
-      absolute.textContent = resolvedDb == null ? "" : `${resolvedDb.toFixed(1)} dBFS`;
+      absolute.textContent = resolvedDb == null ? "" : `${resolvedDb.toFixed(1)} LUFS`;
       root.setAttribute("aria-valuenow", String(current));
       root.setAttribute("aria-valuetext", format(key, current));
       root.setAttribute("aria-label", message(`knob_${key}`, key));
     },
   };
+}
+
+/**
+ * A horizontal slider for basic mode. Deliberately not a knob: a knob is for
+ * trimming a value you already understand, and basic mode is for people who
+ * want "more" or "less" without learning what a threshold is. Left to right
+ * reads as less to more without a label explaining it.
+ */
+function createSlider(key, onChange) {
+  const range = RANGES[key];
+  const root = document.createElement("div");
+  root.className = "slider-row";
+
+  const name = document.createElement("label");
+  name.className = "slider-name";
+  name.textContent = message(`slider_${key}`, key);
+
+  const readout = document.createElement("span");
+  readout.className = "slider-value";
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.className = "slider";
+  input.min = "0";
+  input.max = "1000";
+  input.step = "1";
+  name.append(readout);
+
+  input.addEventListener("input", () => {
+    onChange(valueAt(key, Number(input.value) / 1000));
+  });
+
+  root.append(name, input);
+  return {
+    root,
+    render(current) {
+      const position = positionOf(key, current);
+      input.value = String(Math.round(position * 1000));
+      input.style.setProperty("--fill", `${position * 100}%`);
+      input.setAttribute("aria-label", message(`slider_${key}`, key));
+      input.setAttribute("aria-valuetext", format(key, current));
+      readout.textContent = format(key, current);
+    },
+  };
+}
+
+/**
+ * Static or adaptive. Advanced only: basic mode is two sliders and stays two
+ * sliders, and static is the default, so the swing that adaptive can produce is
+ * not something a basic user meets by accident.
+ */
+function buildResponses() {
+  el.responses.replaceChildren(
+    ...controls.RESPONSES.map((response) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "response";
+      button.dataset.response = response;
+      button.textContent = message(`response_${response}`, response);
+      button.addEventListener("click", () => apply({ response }));
+      return button;
+    }),
+  );
+}
+
+function buildModes() {
+  el.modes.replaceChildren(
+    ...MODES.map((mode) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mode";
+      button.dataset.mode = mode;
+      button.setAttribute("role", "tab");
+      button.textContent = message(`mode_${mode}`, mode);
+      button.addEventListener("click", () => {
+        // Switching must not move the sound: going to advanced carries the
+        // basic slider's current meaning into the knobs.
+        lastEdit = Date.now();
+        settings = controls.withMode(settings, mode);
+        render();
+        persist();
+      });
+      return button;
+    }),
+  );
 }
 
 // --- rendering -------------------------------------------------------------
@@ -180,11 +295,16 @@ function localise() {
   }
 }
 
-function buildKnobs() {
-  for (const key of keys) {
+function buildControls() {
+  for (const key of LAYOUT.advanced) {
     const knob = createKnob(key, (next) => apply({ [key]: next, on: true }));
     knobs.set(key, knob);
     el.knobs.append(knob.root);
+  }
+  for (const key of LAYOUT.basic) {
+    const slider = createSlider(key, (next) => apply({ [key]: next, on: true }));
+    sliders.set(key, slider);
+    el.sliders.append(slider.root);
   }
 }
 
@@ -195,7 +315,17 @@ function buildPresets() {
       button.type = "button";
       button.dataset.preset = preset.id;
       button.textContent = message(`preset_${preset.id}`, preset.id);
-      button.addEventListener("click", () => apply({ ...preset, on: true }));
+      // A preset writes only the controls of the panel it was clicked in, for
+      // the same reason switching modes writes nothing: neither panel may
+      // silently overwrite the other's settings. It still lights up in both,
+      // because a preset is one point expressed two ways.
+      button.addEventListener("click", () =>
+        apply(
+          settings.mode === "advanced"
+            ? { ...controls.fromStrength(preset.strength), on: true }
+            : { strength: preset.strength, on: true },
+        ),
+      );
       return button;
     }),
   );
@@ -225,9 +355,25 @@ function render() {
     ? message("disable", "Disable")
     : message("enable", "Enable");
 
-  for (const key of keys) {
-    knobs.get(key).render(settings[key], controls.absolute(settings[key], programmeDb));
+  const basic = settings.mode === "basic";
+  el.sliders.dataset.inactive = String(!basic);
+  el.advanced.dataset.inactive = String(basic);
+  for (const button of el.responses.children) {
+    button.setAttribute("aria-pressed", String(button.dataset.response === settings.response));
   }
+  for (const button of el.modes.children) {
+    const active = button.dataset.mode === settings.mode;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  }
+
+  for (const [key, knob] of knobs) {
+    // Only the two level controls resolve to an absolute loudness; a ratio and
+    // a make-up gain are not points on the LUFS scale.
+    const resolved = RANGES[key].unit === "LU" ? controls.absolute(settings[key], programmeDb) : null;
+    knob.render(settings[key], resolved);
+  }
+  for (const [key, slider] of sliders) slider.render(settings[key]);
 
   const active = controls.presetFor(settings);
   for (const button of el.presets.children) {
@@ -240,7 +386,7 @@ function render() {
   el.programme.textContent =
     programmeDb == null
       ? ""
-      : `${message("programme", "Programme")} ${programmeDb.toFixed(1)} dBFS`;
+      : `${message("programme", "Programme")} ${programmeDb.toFixed(1)} LUFS`;
 
   const usable = summary.routed > 0 || summary.webAudio || summary.media > summary.blocked;
   el.control.dataset.disabled = String(!usable);
@@ -256,25 +402,25 @@ function render() {
 
   // Reduction is negative dB. 20 dB of travel covers what these ranges ask for.
   const reduction = Math.min(0, summary.reduction);
-  el.meter.style.width = `${Math.min(100, (-reduction / 20) * 100)}%`;
+  el.meter.style.transform = `scaleX(${Math.min(1, -reduction / 20)})`;
   el.reduction.textContent = `${reduction.toFixed(1)} dB`;
 }
 
+function persist() {
+  return api.runtime.sendMessage({ type: "levora:setSettings", tabId, origin, settings });
+}
+
 async function apply(next) {
+  lastEdit = Date.now();
   settings = normalise({ ...settings, ...next });
   render();
-  await api.runtime.sendMessage({
-    type: "levora:setSettings",
-    tabId,
-    origin,
-    settings,
-  });
+  await persist();
 }
 
 async function refresh() {
   const state = await api.runtime.sendMessage({ type: "levora:getState", tabId, origin });
   if (!state) return;
-  settings = normalise(state.settings);
+  if (!holding()) settings = normalise(state.settings);
   frames = { ...frames, ...state.frames };
   render();
 }
@@ -304,14 +450,16 @@ api.runtime.onMessage.addListener((incoming, sender) => {
     return;
   }
   if (incoming?.type !== "levora:state" || incoming.tabId !== tabId) return;
-  if (incoming.settings) settings = normalise(incoming.settings);
+  if (incoming.settings && !holding()) settings = normalise(incoming.settings);
   if (incoming.frames) frames = { ...frames, ...incoming.frames };
   render();
 });
 
 (async () => {
   localise();
-  buildKnobs();
+  buildModes();
+  buildResponses();
+  buildControls();
   buildPresets();
   render();
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });

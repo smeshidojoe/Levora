@@ -15,21 +15,49 @@
     "message": "Disable",
     "description": "Button that turns compression off for this site"
   },
+  "mode_basic": {
+    "message": "Basic",
+    "description": "Tab: two sliders, amount and volume"
+  },
+  "mode_advanced": {
+    "message": "Advanced",
+    "description": "Tab: the engine's own three controls plus output"
+  },
+  "slider_strength": {
+    "message": "Compression",
+    "description": "Basic slider: further right is stronger"
+  },
+  "slider_outputDb": {
+    "message": "Output gain",
+    "description": "Basic slider: make-up gain applied after compression"
+  },
   "knob_holdAboveDb": {
     "message": "Hold above",
-    "description": "Knob: dB above the programme loudness where compression and levelling start"
+    "description": "Knob: LU above the programme loudness where compression and levelling start"
   },
   "knob_reachBelowDb": {
     "message": "Lift below",
-    "description": "Knob: dB below the programme loudness that levelling reaches down to"
+    "description": "Knob: LU below the programme loudness that levelling reaches down to"
   },
   "knob_ratio": {
     "message": "Ratio",
     "description": "Knob: compression ratio"
   },
+  "knob_outputDb": {
+    "message": "Gain",
+    "description": "Knob: the same make-up gain, abbreviated to fit the column"
+  },
+  "response_static": {
+    "message": "Static",
+    "description": "Response: gain depends only on the current level"
+  },
+  "response_adaptive": {
+    "message": "Adaptive",
+    "description": "Response: a slow loop chases the programme level"
+  },
   "programme": {
     "message": "Programme",
-    "description": "Label before the measured programme loudness in dBFS"
+    "description": "Label before the measured programme loudness in LUFS"
   },
   "reduction": {
     "message": "Reduction",

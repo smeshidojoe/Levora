@@ -24,11 +24,9 @@
   const AudioNodeProto = window.AudioNode && window.AudioNode.prototype;
   if (!AudioNodeProto || typeof AudioNodeProto.connect !== "function") return;
 
-  const MIX_RAMP = 0.05;
-
   const nativeConnect = AudioNodeProto.connect;
   const chains = new Set();
-  let config = { on: false };
+  let config = {};
 
   const root = () => document.documentElement;
 
@@ -36,9 +34,9 @@
     const element = root();
     if (!element) return { on: false };
     try {
-      return JSON.parse(element.getAttribute("data-levora") || "") || { on: false };
+      return JSON.parse(element.getAttribute("data-levora") || "") || {};
     } catch {
-      return { on: false };
+      return {};
     }
   }
 
@@ -47,35 +45,24 @@
     if (element) element.setAttribute("data-levora-webaudio", "1");
   }
 
-  function setParam(param, value, context) {
-    try {
-      param.setTargetAtTime(value, context.currentTime, MIX_RAMP);
-    } catch {
-      param.value = value;
-    }
-  }
-
   function ensureChain(context) {
     if (context.__levoraChain) return context.__levoraChain;
 
     const master = context.createGain();
-    const dry = context.createGain();
-    const wet = context.createGain();
     // A plain gain stands in until the worklet module resolves. addModule is
     // asynchronous but the patched connect() is not, so the chain has to be
     // complete and audible from the first call — a page whose audio waits on a
     // network fetch is a page we broke.
+    //
+    // One path only. See buildGraph() in content/engine.js: a parallel dry path
+    // beside a delayed wet one puts the same audio out twice. Bypass is a flag
+    // inside the worklet.
     const placeholder = context.createGain();
-    const limiter = context.createDynamicsCompressor();
 
-    nativeConnect.call(master, dry);
-    nativeConnect.call(dry, context.destination);
     nativeConnect.call(master, placeholder);
-    nativeConnect.call(placeholder, limiter);
-    nativeConnect.call(limiter, wet);
-    nativeConnect.call(wet, context.destination);
+    nativeConnect.call(placeholder, context.destination);
 
-    const chain = { context, master, dry, wet, placeholder, limiter, node: null };
+    const chain = { context, master, placeholder, node: null };
     context.__levoraChain = chain;
     chains.add(chain);
     apply(chain);
@@ -103,9 +90,9 @@
           channelCountMode: "explicit",
         });
         nativeConnect.call(chain.master, node);
-        nativeConnect.call(node, chain.limiter);
+        nativeConnect.call(node, chain.context.destination);
         chain.master.disconnect(chain.placeholder);
-        chain.placeholder.disconnect(chain.limiter);
+        chain.placeholder.disconnect(chain.context.destination);
         chain.node = node;
         apply(chain);
       })
@@ -116,19 +103,6 @@
   }
 
   function apply(chain) {
-    const { context } = chain;
-    setParam(chain.wet.gain, config.on ? 1 : 0, context);
-    setParam(chain.dry.gain, config.on ? 0 : 1, context);
-    if (!config.on) return;
-
-    const limiter = config.limiter;
-    if (limiter) {
-      chain.limiter.threshold.value = limiter.threshold;
-      chain.limiter.knee.value = limiter.knee;
-      chain.limiter.ratio.value = limiter.ratio;
-      chain.limiter.attack.value = limiter.attack;
-      chain.limiter.release.value = limiter.release;
-    }
     if (chain.node && config.params) {
       chain.node.port.postMessage({ type: "params", params: config.params });
     }
@@ -139,7 +113,8 @@
       const context = this.context;
       if (context && destination === context.destination) {
         const chain = ensureChain(context);
-        const ours = this === chain.dry || this === chain.wet || this === chain.master;
+        const ours =
+          this === chain.master || this === chain.placeholder || this === chain.node;
         if (!ours) return nativeConnect.call(this, chain.master, ...rest);
       }
     } catch {

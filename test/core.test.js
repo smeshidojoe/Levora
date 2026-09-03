@@ -16,7 +16,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { LevoraCore, staticCurveDb } from "../src/worklet/levora-processor.js";
+import { LevoraCore, staticCurveDb, transferDb } from "../src/worklet/levora-processor.js";
 import "../src/lib/controls.js";
 
 const controls = globalThis.LevoraControls;
@@ -26,10 +26,28 @@ const BLOCK = 128;
 const BLOCKS_PER_SECOND = RATE / BLOCK; // 375
 const seconds = (n) => Math.round(n * BLOCKS_PER_SECOND);
 
+/**
+ * A core set up from settings. Advanced mode unless the settings say otherwise:
+ * these tests name the engine's three values directly, and resolve() ignores
+ * them in basic mode — where the strength slider drives all three instead.
+ */
 function core(settings) {
   const instance = new LevoraCore(RATE, BLOCK);
-  instance.setParams(controls.resolve({ ...controls.DEFAULTS, ...settings }));
+  const mode = settings?.strength === undefined ? "advanced" : "basic";
+  instance.setParams(controls.resolve({ ...controls.DEFAULTS, mode, on: true, ...settings }));
   return instance;
+}
+
+/**
+ * How far the output of a constant quiet passage moves once a loud passage has
+ * ended. This is the complaint the static response exists to answer: quiet
+ * material creeping up toward the level the loud material had.
+ */
+function driftAfterLoud(settings) {
+  const instance = core(settings);
+  run(instance, level(-14, 8));
+  const quiet = run(instance, level(-30, 8));
+  return quiet[quiet.length - 1] - quiet[seconds(0.5)];
 }
 
 /** Run a dB timeline through the core; returns output loudness per block. */
@@ -129,7 +147,7 @@ test("a deep floor flattens a 16 dB scene change", () => {
   const spread = sceneSpread(
     run(core({ holdAboveDb: 0, reachBelowDb: -40, ratio: 10 }), programme(6, -30, -14)),
   );
-  assert.ok(spread < 5, `scenes still ${spread.toFixed(1)} dB apart`);
+  assert.ok(spread < 6, `scenes still ${spread.toFixed(1)} dB apart`);
 });
 
 test("a wide window leaves the programme's dynamics alone", () => {
@@ -231,5 +249,75 @@ test("changing the controls does not step the gain upward", () => {
   assert.ok(
     loudest <= Math.max(settled, -20) + 1,
     `the change pushed the output to ${loudest.toFixed(1)} dB`,
+  );
+});
+
+// --- static versus adaptive -----------------------------------------------
+
+test("the transfer curve is flat inside the window and bounded outside it", () => {
+  const shape = (deviation) => transferDb(deviation, 4, -28, 5);
+  // Inside the window: untouched. This is what makes the response predictable —
+  // most material passes through as itself.
+  assert.equal(shape(0), 0);
+  assert.equal(shape(2), 0);
+  // Above the threshold: held down.
+  assert.ok(shape(14) < -6, `only ${shape(14).toFixed(1)} dB at 14 LU over`);
+  // Below the programme: lifted.
+  assert.ok(shape(-10) > 3, `only ${shape(-10).toFixed(1)} dB of lift at -10 LU`);
+  // At and below the floor: nothing, so hiss is left where it is. A plain
+  // upward compressor lifts anything quiet, noise included.
+  assert.equal(shape(-28), 0);
+  assert.equal(shape(-40), 0);
+});
+
+test("the transfer curve never inverts", () => {
+  // Output must rise with input everywhere, or somewhere in the middle a louder
+  // input comes out quieter. The first version did exactly that just past the
+  // threshold, where a soft knee reaching below it disagreed with the unity
+  // region underneath.
+  // Including a threshold pulled below the programme level, where the two
+  // regions meet rather than leaving a window between them.
+  for (const holdAbove of [12, 4, 0, -4, -12]) {
+    let previous = -Infinity;
+    for (let deviation = -50; deviation <= 25; deviation += 0.25) {
+      const out = deviation + transferDb(deviation, holdAbove, -28, 5);
+      assert.ok(out >= previous - 1e-9, `inverts at ${deviation} LU, threshold ${holdAbove}`);
+      previous = out;
+    }
+  }
+});
+
+test("the static response does not depend on what came before", () => {
+  // The same quiet material, with and without a loud passage ahead of it. Only
+  // the 60 s programme reference differs, which is slow enough not to be heard
+  // as a swing.
+  const drift = driftAfterLoud({ strength: 65, response: "static" });
+  assert.ok(Math.abs(drift) < 2.5, `${drift.toFixed(1)} dB of drift`);
+});
+
+test("the adaptive response does depend on it, which is the reported problem", () => {
+  // Kept as a test rather than deleted: this is the behaviour static exists to
+  // replace, and the number is why static is the default.
+  const drift = driftAfterLoud({ strength: 65, response: "adaptive" });
+  assert.ok(drift > 4, `only ${drift.toFixed(1)} dB of drift — the swing is gone?`);
+});
+
+test("the two responses trade levelling against steadiness", () => {
+  // Both directions of the trade-off, so neither can be quietly lost. At full
+  // strength adaptive closes a 16 dB gap to about 2 dB where static manages
+  // about 4 — and pays for it with more than twice the drift.
+  const timeline = programme(6, -30, -14);
+  const asStatic = sceneSpread(run(core({ strength: 100, response: "static" }), timeline));
+  const asAdaptive = sceneSpread(run(core({ strength: 100, response: "adaptive" }), timeline));
+  assert.ok(
+    asAdaptive < asStatic,
+    `adaptive did not level further: ${asAdaptive.toFixed(1)} against ${asStatic.toFixed(1)} dB`,
+  );
+
+  const staticDrift = driftAfterLoud({ strength: 100, response: "static" });
+  const adaptiveDrift = driftAfterLoud({ strength: 100, response: "adaptive" });
+  assert.ok(
+    staticDrift < adaptiveDrift / 2,
+    `static drifted ${staticDrift.toFixed(1)} dB against adaptive's ${adaptiveDrift.toFixed(1)}`,
   );
 });

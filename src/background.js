@@ -60,18 +60,67 @@ async function writeFrames(tabId, value) {
   await api.storage.session.set({ [tabKey(tabId)]: value });
 }
 
+// Whichever control the user is actually holding. Read straight off the stored
+// object rather than resolved through lib/controls.js, which this file cannot
+// import — a badge is not worth a duplicated mapping.
+function badgeLabel(settings) {
+  if (!settings?.on) return "";
+  if (settings.mode === "advanced") {
+    const ratio = Number(settings.ratio);
+    return Number.isFinite(ratio) ? `${ratio.toFixed(0)}:1` : "";
+  }
+  const strength = Number(settings.strength);
+  return Number.isFinite(strength) ? String(Math.round(strength)) : "";
+}
+
 async function updateBadge(tabId, settings) {
   try {
-    const ratio = Number(settings?.ratio);
-    await api.action.setBadgeText({
-      tabId,
-      text: settings?.on && Number.isFinite(ratio) ? `${ratio.toFixed(0)}:1` : "",
-    });
+    await api.action.setBadgeText({ tabId, text: badgeLabel(settings) });
     await api.action.setBadgeBackgroundColor({ tabId, color: ACCENT });
     await api.action.setBadgeTextColor?.({ tabId, color: INK });
   } catch {
     // Tab closed mid-flight.
   }
+}
+
+/**
+ * Push a setting to every tab on that origin, not just the one the popup was
+ * open in.
+ *
+ * The setting is stored per site, so applying it to a single tab made the two
+ * disagree: a second YouTube tab kept the old behaviour until it happened to
+ * reload. Per-site has to mean per-site everywhere at once, or it is a per-tab
+ * setting that merely remembers.
+ */
+async function applyToOrigin(origin, settings) {
+  // Parsed inside the guard, not as part of it: a file:// page has the opaque
+  // origin "null", and `new URL("null")` throws — which happened before the
+  // condition could reject it.
+  let scheme = null;
+  try {
+    scheme = origin ? new URL(origin).protocol : null;
+  } catch {
+    return;
+  }
+  if (scheme !== "http:" && scheme !== "https:") return;
+
+  let tabs = [];
+  try {
+    tabs = await api.tabs.query({ url: `${origin}/*` });
+  } catch {
+    return; // no match-pattern access to this origin
+  }
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (tab.id == null) return;
+      try {
+        await api.tabs.sendMessage(tab.id, { type: "levora:apply", settings });
+      } catch {
+        // Browser-internal page, or a tab with no content script yet.
+      }
+      await updateBadge(tab.id, settings);
+    }),
+  );
 }
 
 function notifyPopup(tabId, payload) {
@@ -122,6 +171,7 @@ async function handleMessage(message, sender) {
   if (type === "levora:persist") {
     const origin = originOf(sender.tab?.url ?? "") ?? sender.origin ?? null;
     await writeSettings(origin, message.settings);
+    await applyToOrigin(origin, message.settings);
     if (sender.tab?.id != null) await updateBadge(sender.tab.id, message.settings);
     notifyPopup(sender.tab?.id, { settings: message.settings, origin });
     return { ok: true };
@@ -144,6 +194,8 @@ async function handleMessage(message, sender) {
   if (type === "levora:setSettings") {
     const origin = message.origin;
     await writeSettings(origin, message.settings);
+    // The tab the popup is open in first, so the control the user is holding
+    // responds without waiting on a query across every window.
     try {
       await api.tabs.sendMessage(message.tabId, {
         type: "levora:apply",
@@ -153,6 +205,7 @@ async function handleMessage(message, sender) {
       // No content script in this tab.
     }
     await updateBadge(message.tabId, message.settings);
+    applyToOrigin(origin, message.settings);
     return { settings: message.settings, origin };
   }
 

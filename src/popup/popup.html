@@ -23,7 +23,18 @@
           Enable
         </button>
 
-        <div class="knobs" id="knobs"></div>
+        <div class="modes" id="modes" role="tablist"></div>
+
+        <!-- Stacked in one grid cell, so the panel's height is the taller of
+             the two whichever is showing. Toggling `hidden` changed the popup's
+             height and the window flashed as it resized. -->
+        <div class="panels">
+          <div class="sliders" id="sliders"></div>
+          <div class="advanced" id="advanced">
+            <div class="knobs" id="knobs"></div>
+            <div class="responses" id="responses" role="group"></div>
+          </div>
+        </div>
 
         <div class="presets" id="presets"></div>
 

@@ -13,6 +13,12 @@
   --accent-ink: #10233a;
   --track: #dcdce1;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.06);
+
+  /* The built-in CSS easings are too weak to read as intentional. Entering and
+     exiting both use ease-out: it starts fast, which is the half the user is
+     actually watching. Never ease-in on UI. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --press: 160ms;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -88,7 +94,13 @@ body {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 150ms var(--ease-out), transform var(--press) var(--ease-out);
+}
+
+/* Feedback belongs on the press, not the release: waiting for click to
+   acknowledge a button is what makes an interface feel dead. */
+.power:active {
+  transform: scale(0.97);
 }
 
 .power:hover {
@@ -102,17 +114,185 @@ body {
 
 /* --- knobs -------------------------------------------------------------- */
 
+/* --- mode switch -------------------------------------------------------- */
+
+.modes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: 14px;
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.mode {
+  padding: 6px 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+
+.mode[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+/* --- basic sliders ------------------------------------------------------- */
+
+/* Centred and roomy, because the cell is as tall as the advanced panel and
+   this one has two controls in it rather than six. Bigger targets suit basic
+   mode anyway — it exists for people who want "more" or "less", not for
+   trimming a value by half a decibel. */
+.sliders {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+}
+
+/* Both panels live in the same grid cell, so the container is always as tall as
+   the taller one and switching modes cannot change the popup's height — it used
+   to, and the window flashed as it resized.
+   `visibility` rather than `display` keeps the cell occupied, and it also takes
+   the inactive panel out of the tab order and the accessibility tree. */
+.panels {
+  display: grid;
+}
+
+.panels > * {
+  grid-area: 1 / 1;
+}
+
+.panels > [data-inactive="true"] {
+  visibility: hidden;
+}
+
+/* --- response ------------------------------------------------------------ */
+
+.advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.responses {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.response {
+  padding: 6px 0;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+
+.response[aria-pressed="true"] {
+  background: var(--surface);
+  border-color: var(--surface);
+  color: var(--text);
+}
+
+
+
+.slider-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.slider-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Vendor pseudo-elements get their own rule each, never a shared selector list.
+   A selector list is invalid as a whole if any selector in it is, and each
+   engine treats the other's pseudo-element as unknown — so a combined rule is
+   dropped by both, and the slider renders with its default appearance. */
+.slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--fill, 0%),
+    var(--track) var(--fill, 0%) 100%
+  );
+}
+
+.slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--fill, 0%),
+    var(--track) var(--fill, 0%) 100%
+  );
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: #fff;
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow);
+}
+
+.slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+/* --- knobs -------------------------------------------------------------- */
+
 .knobs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
 }
 
 .knob {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   padding: 4px 0;
   border-radius: 10px;
   /* Vertical drag is the gesture, so the browser must not claim it for
@@ -124,6 +304,12 @@ body {
 
 .knob:focus-visible {
   box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* The knob tracks the pointer 1:1 while dragging, so it needs no motion of its
+   own — only an acknowledgement that it has been grabbed. */
+.knob:active {
+  background: var(--surface);
 }
 
 .knob svg {
@@ -144,7 +330,7 @@ body {
 }
 
 .knob-name {
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--text-secondary);
   text-align: center;
   line-height: 1.15;
@@ -182,7 +368,11 @@ body {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 150ms var(--ease-out), transform var(--press) var(--ease-out);
+}
+
+.presets button:active {
+  transform: scale(0.97);
 }
 
 .presets button:hover {
@@ -213,12 +403,17 @@ body {
   overflow: hidden;
 }
 
+/* scaleX rather than width. The worklet reports ten times a second, and width
+   is a layout property — animating it would re-layout the popup on every
+   report. transform and opacity are the only two that skip layout and paint. */
 .meter > i {
   display: block;
   height: 100%;
-  width: 0%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
   background: var(--accent);
-  transition: width 0.15s linear;
+  transition: transform 150ms linear;
 }
 
 .meter-value {
@@ -252,4 +447,37 @@ body {
   font-size: 11.5px;
   line-height: 1.35;
   text-align: center;
+}
+
+/* --- accessibility ------------------------------------------------------ */
+
+/* Reduced motion is not "no feedback" — it is feedback without movement. The
+   colour and opacity changes carry meaning and stay; the scale does not. */
+@media (prefers-reduced-motion: reduce) {
+  .power,
+  .presets button,
+  .mode {
+    transition: background 150ms var(--ease-out);
+  }
+
+  .power:active,
+  .presets button:active {
+    transform: none;
+  }
+
+  .meter > i {
+    transition: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .power,
+  .presets button,
+  .mode[aria-selected="true"] {
+    border: 1px solid var(--text);
+  }
+
+  .meter {
+    outline: 1px solid var(--text);
+  }
 }
